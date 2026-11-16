@@ -18,6 +18,10 @@ Il s'installe comme une application et fonctionne ensuite sans connexion.
 - **Un seul geste** : à l'ouverture, l'application reprend votre dernier texte avec la
   caméra déjà prête. Vous touchez *Lire*, le décompte 3-2-1 tourne, et la prise démarre
   en même temps que le défilement. Vous touchez *Pause*, elle s'arrête et s'affiche.
+- **Vidéo prête à publier, sans compresseur** : format vertical 1080 × 1920 par défaut
+  (Reels, TikTok, Shorts), ou portrait 4:5, carré, paysage. L'encodage se règle tout seul —
+  codec le plus efficace que sait écrire le téléphone, débit calculé pour un plan fixe —
+  autour de 20 Mo par minute. Le cadre réellement filmé est matérialisé à l'écran.
 - **Mode caméra** : votre visage en plein écran, le texte qui défile par-dessus, et
   l'enregistrement vidéo intégré. Le texte n'apparaît pas dans la vidéo enregistrée.
 - **Repère de regard** réglable en hauteur, à placer au plus près de l'objectif.

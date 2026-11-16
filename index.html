@@ -103,7 +103,12 @@
   #scene { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
   #camera { position: absolute; inset: 0; width: 100%; height: 100%;
             object-fit: cover; display: none; }
-  #camera.actif { display: block; }
+  #camera.actif { display: block; object-fit: contain; }
+  #cadre {
+    /* dimensions calculées en JS : l'image filmée, au pixel près */
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    border: 1px solid rgba(232,163,61,.45); pointer-events: none;
+  }
   #voile { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: none; }
   #voile.actif { display: block; }
   #miroir { position: absolute; inset: 0; will-change: transform; }
@@ -249,6 +254,7 @@
 <section class="vue" id="vue-lecture">
   <div id="scene">
     <video id="camera" playsinline muted></video>
+    <div id="cadre" hidden></div>
     <div id="voile"></div>
     <div id="miroir"><div id="texte"></div></div>
     <div id="ligne"></div>
@@ -276,7 +282,7 @@
   </div>
 
   <div id="revue" hidden>
-    <h2>Votre prise</h2>
+    <h2>Votre prise <span class="val" id="format-prise" hidden></span></h2>
     <video id="apercu" controls playsinline></video>
     <div class="actions">
       <button class="btn plein" id="btn-partager" hidden>Enregistrer dans Photos</button>
@@ -306,6 +312,16 @@
     <div class="reglage">
       <span class="etiq">Ligne de lecture <span class="val" id="val-ligne"></span></span>
       <input type="range" id="rng-ligne" min="15" max="70" step="5">
+    </div>
+    <div class="reglage" id="bloc-qualite" hidden>
+      <span class="etiq">Format de la vidéo <span class="val" id="val-format"></span></span>
+      <select id="sel-cadre">
+        <option value="9:16">Vertical 9:16 — 1080 × 1920 (Reels, TikTok, Shorts)</option>
+        <option value="4:5">Portrait 4:5 — 1080 × 1350 (fil Instagram)</option>
+        <option value="1:1">Carré 1:1 — 1080 × 1080</option>
+        <option value="16:9">Paysage 16:9 — 1920 × 1080 (YouTube)</option>
+      </select>
+      <p class="note" id="val-poids" style="margin:8px 0 0"></p>
     </div>
     <div class="reglage" id="bloc-voile" hidden>
       <span class="etiq">Assombrir l'image <span class="val" id="val-voile"></span></span>
@@ -353,7 +369,8 @@ const etatInitial = {
   textes: [{ id: "exemple", titre: "Texte d'essai", contenu: EXEMPLE, modifie: Date.now() }],
   reglages: { vitesse: 140, taille: 38, interligne: 150, largeur: 85, ligne: 35,
               miroir: false, vertical: false, decompte: true, veille: true, voile: 45,
-              camera_auto: true, enreg_auto: true },
+              camera_auto: true, enreg_auto: true,
+              format: "9:16" },
 };
 let etat = charger();
 let courant = null;          // texte en cours de lecture ou d'édition
@@ -485,6 +502,7 @@ function appliquerReglages() {
   $("ligne").style.top = r.ligne + "%";
   $("voile").style.background = `rgba(0,0,0,${r.voile / 100})`;
   $("rng-voile").value = r.voile; $("val-voile").textContent = r.voile + " %";
+  $("sel-cadre").value = r.format || "9:16";
   $("rng-vitesse").value = r.vitesse; $("val-vitesse").textContent = r.vitesse + " mots/min";
   $("rng-taille").value = r.taille; $("val-taille").textContent = r.taille + " px";
   $("rng-interligne").value = r.interligne; $("val-interligne").textContent = (r.interligne / 100).toFixed(1);
@@ -621,6 +639,38 @@ $("rng-interligne").oninput = (e) => { etat.reglages.interligne = Number(e.targe
 $("rng-largeur").oninput = (e) => { etat.reglages.largeur = Number(e.target.value); sauver(); appliquerReglages(); };
 $("rng-ligne").oninput = (e) => { etat.reglages.ligne = Number(e.target.value); sauver(); appliquerReglages(); };
 $("rng-voile").oninput = (e) => { etat.reglages.voile = Number(e.target.value); sauver(); appliquerReglages(); };
+$("sel-cadre").onchange = async (e) => {
+  etat.reglages.format = e.target.value;
+  sauver();
+  if (flux) {                       // la définition ne change qu'en rouvrant la caméra
+    const feuille = $("reglages").hidden;
+    arreterCamera();
+    await demarrerCamera(false);
+    $("reglages").hidden = feuille;
+  }
+  majPoids();
+};
+
+function majCadre() {
+  // l'aperçu montre exactement l'image filmée, encadrée : pas de mauvaise surprise au montage
+  const piste = flux && flux.getVideoTracks()[0];
+  const reglage = piste ? piste.getSettings() : null;
+  if (!reglage || !reglage.width) { $("cadre").hidden = true; return; }
+  const scene = $("scene");
+  const rapportVideo = reglage.width / reglage.height;
+  const rapportEcran = scene.clientWidth / Math.max(1, scene.clientHeight);
+  let largeur, hauteur;
+  if (rapportVideo > rapportEcran) {          // vidéo plus large que l'écran : bandes haut et bas
+    largeur = scene.clientWidth;
+    hauteur = largeur / rapportVideo;
+  } else {                                     // vidéo plus haute : bandes sur les côtés
+    hauteur = scene.clientHeight;
+    largeur = hauteur * rapportVideo;
+  }
+  $("cadre").style.width = Math.round(largeur) + "px";
+  $("cadre").style.height = Math.round(hauteur) + "px";
+  $("cadre").hidden = false;
+}
 
 function bascule(idBouton, cle) {
   $(idBouton).onclick = () => {
@@ -652,12 +702,57 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ---------------------------------------------------------- caméra */
+// 1080 sur le petit côté : la définition des réseaux sociaux, sans le poids de la 4K
+const CADRES = {
+  "9:16": { largeur: 1080, hauteur: 1920 },
+  "4:5":  { largeur: 1080, hauteur: 1350 },
+  "1:1":  { largeur: 1080, hauteur: 1080 },
+  "16:9": { largeur: 1920, hauteur: 1080 },
+};
+const cadre = () => CADRES[etat.reglages.format] || CADRES["9:16"];
+
+/* Le débit est calculé, pas choisi : bits par pixel et par image, valeur basse parce
+   qu'un plan fixe face caméra bouge peu, et encore plus basse en HEVC qui comprime
+   mieux. Le fichier sort directement publiable, sans passer par un compresseur. */
+function debitVoulu() {
+  const piste = flux && flux.getVideoTracks()[0];
+  const r = piste ? piste.getSettings() : {};
+  const voulu = cadre();
+  const largeur = r.width || voulu.largeur;
+  const hauteur = r.height || voulu.hauteur;
+  const images = Math.min(r.frameRate || 30, 30);
+  const parPixel = typeVideo().includes("hvc1") ? 0.045 : 0.07;
+  const calcule = largeur * hauteur * images * parPixel;
+  return Math.round(Math.min(Math.max(calcule, 1500000), 12000000));
+}
+
+function formatCapture() {
+  if (!flux) return "";
+  const piste = flux.getVideoTracks()[0];
+  const reglage = piste ? piste.getSettings() : {};
+  if (!reglage.width) return "";
+  const images = reglage.frameRate ? ` · ${Math.round(reglage.frameRate)} i/s` : "";
+  return `${reglage.width}×${reglage.height}${images}`;
+}
+
+function majPoids() {
+  const megaoctets = debitVoulu() / 8 / 1048576 * 60;
+  const codec = typeVideo().includes("hvc1") ? "HEVC, le plus léger que sait écrire ce téléphone"
+                                             : "H.264, lu partout";
+  $("val-poids").textContent = `Encodage réglé tout seul : ${codec}. `
+    + `Environ ${megaoctets.toFixed(0)} Mo par minute, prêt à publier sans retouche.`;
+}
+
+
 async function demarrerCamera(silencieux) {
   if (flux) return true;
   $("note-camera").hidden = true;
   try {
+    const voulu = cadre();
     flux = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
+      video: { facingMode: "user",
+               width: { ideal: voulu.largeur }, height: { ideal: voulu.hauteur },
+               aspectRatio: { ideal: voulu.largeur / voulu.hauteur } },
       audio: true,
     });
   } catch (e) {
@@ -679,6 +774,10 @@ async function demarrerCamera(silencieux) {
   $("bsc-camera").setAttribute("aria-pressed", "true");
   $("camera").style.transform = etat.reglages.miroir ? "none" : "scaleX(-1)";
   $("bloc-voile").hidden = false;
+  $("bloc-qualite").hidden = false;
+  $("val-format").textContent = formatCapture();   // ce que la caméra donne vraiment
+  majPoids();
+  majCadre();
   $("reglages").hidden = true;   // sinon la feuille recouvre le bouton d'enregistrement
   montrerCommandes();
   if (!$("btn-enreg")) {
@@ -708,12 +807,15 @@ function arreterCamera() {
   $("voile").classList.remove("actif");
   $("bsc-camera").setAttribute("aria-pressed", "false");
   $("bloc-voile").hidden = true;
+  $("bloc-qualite").hidden = true;
   const bouton = $("btn-enreg");
   if (bouton) bouton.remove();
 }
 
 function typeVideo() {
-  const types = ["video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  // HEVC en premier : même image, fichier bien plus léger, lu nativement par iPhone
+  const types = ["video/mp4;codecs=hvc1", "video/mp4;codecs=avc1", "video/mp4",
+                 "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
   return types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
 }
 
@@ -723,8 +825,14 @@ function basculerEnregistrement(automatique) {
   enreg_automatique = !!automatique;
   morceaux = [];
   const type = typeVideo();
-  try { enregistreur = new MediaRecorder(flux, type ? { mimeType: type } : undefined); }
-  catch (e) { return; }
+  // sans débit explicite, le navigateur choisit une valeur basse : l'image est molle
+  const options = { videoBitsPerSecond: debitVoulu(), audioBitsPerSecond: 128000 };
+  if (type) options.mimeType = type;
+  try { enregistreur = new MediaRecorder(flux, options); }
+  catch (e) {
+    try { enregistreur = new MediaRecorder(flux, type ? { mimeType: type } : undefined); }
+    catch (e2) { return; }
+  }
   enregistreur.ondataavailable = (e) => { if (e.data.size) morceaux.push(e.data); };
   enregistreur.onstop = () => {
     enreg_automatique = false;
@@ -765,6 +873,9 @@ function montrerPrise(blob, nom) {
   $("btn-partager").hidden = !partageable;
 
   const poids = (blob.size / 1048576).toFixed(1);
+  const format = formatCapture();
+  if (format) $("format-prise").textContent = format;
+  $("format-prise").hidden = !format;
   $("note-revue").textContent = partageable
     ? `${poids} Mo. « Enregistrer dans Photos » ouvre le menu de partage du téléphone : `
       + `choisissez « Enregistrer la vidéo » pour la ranger dans vos photos. `
@@ -824,7 +935,11 @@ document.addEventListener("keydown", (e) => {
   else if (e.code === "Escape") { $("btn-quitter").click(); }
 });
 
-window.addEventListener("resize", () => { if ($("vue-lecture").classList.contains("actif")) mesurer(); });
+window.addEventListener("resize", () => {
+  if (!$("vue-lecture").classList.contains("actif")) return;
+  mesurer();
+  if (flux) majCadre();          // la rotation du téléphone change le cadre affiché
+});
 
 /* ---------------------------------------------------------- installation */
 if (window.top === window.self) {          // page ouverte directement, pas dans un cadre
