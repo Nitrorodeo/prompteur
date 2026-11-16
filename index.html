@@ -198,6 +198,12 @@
   #revue .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   #revue .actions .btn { flex: 1; min-width: 130px; }
 
+  #invite-camera {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    border: 1px solid var(--ambre); border-radius: 12px; background: rgba(18,20,24,.92);
+    color: var(--ambre); padding: 16px 20px; font-size: 15px; max-width: 80%;
+  }
+
   #decompte {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
     background: rgba(0,0,0,.75); font-family: var(--chrome); font-size: 23vmin; color: var(--ambre);
@@ -257,6 +263,8 @@
     <span id="chrono">00:00 / 00:00</span>
   </div>
 
+  <button id="invite-camera" hidden>Toucher pour activer la caméra</button>
+
   <div id="decompte"></div>
 
   <div id="commandes">
@@ -309,6 +317,8 @@
       <button class="bascule" id="bsc-decompte" aria-pressed="true">Décompte 3-2-1</button>
       <button class="bascule" id="bsc-veille" aria-pressed="true">Garder l'écran allumé</button>
       <button class="bascule" id="bsc-camera" aria-pressed="false">Mode caméra</button>
+      <button class="bascule" id="bsc-camera-auto" aria-pressed="true">Ouvrir sur la caméra</button>
+      <button class="bascule" id="bsc-enreg-auto" aria-pressed="true">Filmer dès « Lire »</button>
       <button class="bascule" id="bsc-plein" aria-pressed="false">Plein écran</button>
     </div>
     <p class="note" id="note-camera" hidden></p>
@@ -342,12 +352,14 @@ Quand tout est réglé, remplacez ce texte par le vôtre. Bon tournage.`;
 const etatInitial = {
   textes: [{ id: "exemple", titre: "Texte d'essai", contenu: EXEMPLE, modifie: Date.now() }],
   reglages: { vitesse: 140, taille: 38, interligne: 150, largeur: 85, ligne: 35,
-              miroir: false, vertical: false, decompte: true, veille: true, voile: 45 },
+              miroir: false, vertical: false, decompte: true, veille: true, voile: 45,
+              camera_auto: true, enreg_auto: true },
 };
 let etat = charger();
 let courant = null;          // texte en cours de lecture ou d'édition
 let pos = 0, max = 0, pxParSec = 0, enLecture = false, derniere = 0, rafId = 0;
 let flux = null, enregistreur = null, morceaux = [], debutEnreg = 0, minuteurEnreg = 0;
+let enreg_automatique = false;   // vrai quand c'est « Lire » qui a lancé la prise
 let verrou = null, masquage = 0;
 
 function charger() {
@@ -358,6 +370,7 @@ function charger() {
     return {
       textes: Array.isArray(lu.textes) && lu.textes.length ? lu.textes : structuredClone(etatInitial.textes),
       reglages: { ...etatInitial.reglages, ...(lu.reglages || {}) },
+      dernier: lu.dernier || null,
     };
   } catch (e) { return structuredClone(etatInitial); }
 }
@@ -445,13 +458,20 @@ $("fichier").onchange = (e) => {
 };
 
 /* ---------------------------------------------------------- lecture */
-function ouvrirLecture(id) {
+async function ouvrirLecture(id) {
   courant = etat.textes.find((t) => t.id === id);
   if (!courant) return;
+  etat.dernier = courant.id;
+  sauver();
   $("texte").textContent = courant.contenu;
   vue("lecture");
   appliquerReglages();
   requestAnimationFrame(() => { mesurer(); placer(0); majChrono(); });
+  if (etat.reglages.camera_auto && !flux) {
+    // certains téléphones exigent un geste pour ouvrir la caméra : on propose alors un bouton
+    const partie = await demarrerCamera(true);
+    $("invite-camera").hidden = partie;
+  }
 }
 
 function appliquerReglages() {
@@ -474,6 +494,8 @@ function appliquerReglages() {
   $("bsc-vertical").setAttribute("aria-pressed", String(r.vertical));
   $("bsc-decompte").setAttribute("aria-pressed", String(r.decompte));
   $("bsc-veille").setAttribute("aria-pressed", String(r.veille));
+  $("bsc-camera-auto").setAttribute("aria-pressed", String(r.camera_auto));
+  $("bsc-enreg-auto").setAttribute("aria-pressed", String(r.enreg_auto));
   mesurer();
 }
 
@@ -501,13 +523,17 @@ function boucle(horodatage) {
   const delta = (horodatage - derniere) / 1000;
   derniere = horodatage;
   placer(pos + pxParSec * delta);
-  if (pos >= max) { pause(); return; }
+  if (pos >= max) { pause(1200); return; }
   rafId = requestAnimationFrame(boucle);
 }
 
 async function lire() {
   if (enLecture) return;
   if (etat.reglages.decompte && pos === 0) await decompter();
+  // un seul geste : le décompte fini, la prise démarre avec le défilement
+  if (flux && etat.reglages.enreg_auto && (!enregistreur || enregistreur.state !== "recording")) {
+    basculerEnregistrement(true);
+  }
   enLecture = true;
   $("btn-play").textContent = "Pause";
   derniere = performance.now();
@@ -515,11 +541,18 @@ async function lire() {
   demanderVeille();
   masquerCommandes();
 }
-function pause() {
+function pause(delaiArret) {
   enLecture = false;
   cancelAnimationFrame(rafId);
   $("btn-play").textContent = "Lire";
   montrerCommandes();
+  if (enreg_automatique && enregistreur && enregistreur.state === "recording") {
+    // en fin de texte on laisse une seconde de battement pour ne pas couper le dernier mot
+    const arreter = () => {
+      if (enregistreur && enregistreur.state === "recording") enregistreur.stop();
+    };
+    delaiArret ? setTimeout(arreter, delaiArret) : arreter();
+  }
 }
 function basculerLecture() { enLecture ? pause() : lire(); }
 
@@ -598,6 +631,8 @@ function bascule(idBouton, cle) {
 bascule("bsc-miroir", "miroir");
 bascule("bsc-vertical", "vertical");
 bascule("bsc-decompte", "decompte");
+bascule("bsc-camera-auto", "camera_auto");
+bascule("bsc-enreg-auto", "enreg_auto");
 $("bsc-veille").onclick = () => {
   etat.reglages.veille = !etat.reglages.veille;
   sauver(); appliquerReglages();
@@ -617,8 +652,8 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ---------------------------------------------------------- caméra */
-$("bsc-camera").onclick = async () => {
-  if (flux) { arreterCamera(); return; }
+async function demarrerCamera(silencieux) {
+  if (flux) return true;
   $("note-camera").hidden = true;
   try {
     flux = await navigator.mediaDevices.getUserMedia({
@@ -627,13 +662,15 @@ $("bsc-camera").onclick = async () => {
     });
   } catch (e) {
     flux = null;
-    $("note-camera").hidden = false;
-    $("note-camera").className = "note alerte";
-    $("note-camera").textContent =
-      "La caméra n'est pas accessible ici. Sur une page publiée sur claude.ai, elle est bloquée : "
-      + "ouvrez le fichier depuis une adresse à vous (https) pour filmer et lire en même temps. "
-      + "Le prompteur fonctionne normalement sans caméra.";
-    return;
+    if (!silencieux) {
+      $("note-camera").hidden = false;
+      $("note-camera").className = "note alerte";
+      $("note-camera").textContent =
+        "La caméra n'est pas accessible ici. Sur une page publiée sur claude.ai, elle est bloquée : "
+        + "ouvrez le fichier depuis une adresse à vous (https) pour filmer et lire en même temps. "
+        + "Le prompteur fonctionne normalement sans caméra.";
+    }
+    return false;
   }
   $("camera").srcObject = flux;
   $("camera").play().catch(() => {});
@@ -647,9 +684,20 @@ $("bsc-camera").onclick = async () => {
   if (!$("btn-enreg")) {
     const bouton = document.createElement("button");
     bouton.className = "cmd enreg"; bouton.id = "btn-enreg"; bouton.textContent = "REC";
-    bouton.onclick = basculerEnregistrement;
+    bouton.onclick = () => basculerEnregistrement(false);
     $("commandes").insertBefore(bouton, $("btn-reglages"));
   }
+  $("invite-camera").hidden = true;
+  return true;
+}
+
+$("bsc-camera").onclick = async () => {
+  if (flux) { arreterCamera(); return; }
+  await demarrerCamera(false);
+};
+$("invite-camera").onclick = async () => {
+  const partie = await demarrerCamera(false);
+  $("invite-camera").hidden = partie;
 };
 
 function arreterCamera() {
@@ -669,15 +717,17 @@ function typeVideo() {
   return types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
 }
 
-function basculerEnregistrement() {
+function basculerEnregistrement(automatique) {
   if (enregistreur && enregistreur.state === "recording") { enregistreur.stop(); return; }
   if (!flux) return;
+  enreg_automatique = !!automatique;
   morceaux = [];
   const type = typeVideo();
   try { enregistreur = new MediaRecorder(flux, type ? { mimeType: type } : undefined); }
   catch (e) { return; }
   enregistreur.ondataavailable = (e) => { if (e.data.size) morceaux.push(e.data); };
   enregistreur.onstop = () => {
+    enreg_automatique = false;
     clearInterval(minuteurEnreg);
     $("tally").hidden = true;
     $("btn-enreg").textContent = "REC";
@@ -789,4 +839,8 @@ if (window.top === window.self) {          // page ouverte directement, pas dans
 /* ---------------------------------------------------------- démarrage */
 appliquerReglages();
 rendreListe();
+// « Ouvrir sur la caméra » : on retrouve le dernier texte, caméra prête, prêt à filmer
+if (etat.reglages.camera_auto && etat.dernier && etat.textes.some((t) => t.id === etat.dernier)) {
+  ouvrirLecture(etat.dernier);
+}
 </script>

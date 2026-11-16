@@ -15,6 +15,9 @@ Il s'installe comme une application et fonctionne ensuite sans connexion.
   pour un débit naturel face caméra.
 - **Durée annoncée** pour chaque texte à la vitesse choisie : vous savez avant de
   tourner si votre script fait 40 secondes ou 3 minutes.
+- **Un seul geste** : à l'ouverture, l'application reprend votre dernier texte avec la
+  caméra déjà prête. Vous touchez *Lire*, le décompte 3-2-1 tourne, et la prise démarre
+  en même temps que le défilement. Vous touchez *Pause*, elle s'arrête et s'affiche.
 - **Mode caméra** : votre visage en plein écran, le texte qui défile par-dessus, et
   l'enregistrement vidéo intégré. Le texte n'apparaît pas dans la vidéo enregistrée.
 - **Repère de regard** réglable en hauteur, à placer au plus près de l'objectif.
