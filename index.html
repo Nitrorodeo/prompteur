@@ -1,0 +1,711 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Prompteur de poche</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2307080a'/><rect x='7' y='9' width='18' height='2.4' rx='1.2' fill='%23f5f3ee'/><rect x='7' y='14' width='12' height='2.4' rx='1.2' fill='%23f5f3ee' opacity='.55'/><rect x='5' y='20' width='22' height='2' rx='1' fill='%23e8a33d'/></svg>">
+<meta name="theme-color" content="#07080a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompteur">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Scène sombre unique, pensée pour un studio : fond quasi noir, texte chaud très
+     contrasté, ambre de prompteur pour la chrome, rouge tally réservé à l'enregistrement.
+     Trois écrans empilés : bibliothèque, éditeur, lecture. */
+  :root {
+    --fond: #07080a;
+    --fond-2: #121418;
+    --bord: #262a31;
+    --texte: #f5f3ee;
+    --doux: #9aa0a9;
+    --ambre: #e8a33d;
+    --tally: #e2402a;
+    --lecture: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --chrome: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--fond); color: var(--texte);
+    font-family: var(--lecture); font-size: 16px; line-height: 1.5;
+    overscroll-behavior: none;
+  }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { background: none; border: none; cursor: pointer; }
+
+  .vue { display: none; height: 100%; flex-direction: column; }
+  .vue.actif { display: flex; }
+
+  /* ---------- barres ---------- */
+  .barre {
+    display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+    padding-block: 12px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    border-bottom: 1px solid var(--bord); background: var(--fond);
+  }
+  .titre-app {
+    font-family: var(--chrome); font-size: 13px; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--ambre); margin: 0;
+  }
+  .grandir { flex: 1; min-width: 0; }
+
+  .btn {
+    border: 1px solid var(--bord); border-radius: 10px; padding: 10px 14px;
+    background: var(--fond-2); font-size: 15px; min-height: 44px;
+  }
+  .btn:active { border-color: var(--ambre); }
+  .btn.plein { background: var(--ambre); border-color: var(--ambre); color: #17120a; font-weight: 600; }
+  .btn.discret { background: none; color: var(--doux); }
+  .btn.danger { color: var(--tally); border-color: #4a2320; }
+
+  /* ---------- bibliothèque ---------- */
+  .liste { flex: 1; overflow-y: auto; padding-block: 14px 110px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .fiche {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    border: 1px solid var(--bord); border-radius: 12px; background: var(--fond-2);
+    padding: 14px; margin-bottom: 10px;
+  }
+  .fiche h3 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+  .fiche .meta { font-family: var(--chrome); font-size: 12px; color: var(--doux);
+                 font-variant-numeric: tabular-nums; }
+  .fiche .modif { flex: 0 0 auto; color: var(--doux); font-size: 13px; padding: 10px; }
+  .vide { color: var(--doux); text-align: center; padding: 40px 10px; }
+  .pied {
+    position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px;
+    padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: linear-gradient(to top, var(--fond) 70%, transparent);
+  }
+  .pied .btn { flex: 1; }
+
+  /* ---------- éditeur ---------- */
+  .edit { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0;
+    padding-block: 14px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .edit input, .edit textarea {
+    background: var(--fond-2); border: 1px solid var(--bord); border-radius: 10px;
+    padding: 12px; width: 100%;
+  }
+  .edit textarea { flex: 1; min-height: 0; resize: none; line-height: 1.6; font-size: 16px; }
+  .compte { font-family: var(--chrome); font-size: 12px; color: var(--doux);
+            font-variant-numeric: tabular-nums; }
+
+  /* ---------- lecture ---------- */
+  #vue-lecture { position: fixed; inset: 0; background: #000; }
+  #scene { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+  #camera { position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; display: none; }
+  #camera.actif { display: block; }
+  #voile { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: none; }
+  #voile.actif { display: block; }
+  #miroir { position: absolute; inset: 0; will-change: transform; }
+  #texte {
+    position: absolute; left: 0; right: 0; top: 0; will-change: transform;
+    padding-left: max(24px, env(safe-area-inset-left, 0px));
+    padding-right: max(24px, env(safe-area-inset-right, 0px));
+    font-weight: 600; white-space: pre-wrap; overflow-wrap: break-word;
+    text-shadow: 0 2px 14px rgba(0,0,0,.9);
+  }
+  #ligne {
+    /* repère de regard : marqué dans les marges, effacé sous les mots */
+    position: absolute; left: 0; right: 0; height: 2px; opacity: .55; pointer-events: none;
+    background: linear-gradient(to right, var(--ambre), transparent 14%,
+                                transparent 86%, var(--ambre));
+  }
+  #ligne::before, #ligne::after {
+    content: ""; position: absolute; top: -5px; border: 6px solid transparent;
+  }
+  #ligne::before { left: 0; border-left-color: var(--ambre); }
+  #ligne::after { right: 0; border-right-color: var(--ambre); }
+  .ombre { position: absolute; left: 0; right: 0; height: 15%; pointer-events: none; }
+  .ombre.haut { top: 0; background: linear-gradient(to bottom, #000, transparent); }
+  .ombre.bas { bottom: 0; background: linear-gradient(to top, #000, transparent); }
+
+  #hud {
+    position: absolute; left: 0; right: 0;
+    top: env(safe-area-inset-top, 0px);
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px max(16px, env(safe-area-inset-left, 0px));
+    font-family: var(--chrome); font-size: 13px; font-variant-numeric: tabular-nums;
+    color: var(--doux); pointer-events: none;
+  }
+  #hud .pointeur { pointer-events: auto; }
+  #tally { color: var(--tally); display: flex; align-items: center; gap: 6px; }
+  #tally .point { width: 9px; height: 9px; border-radius: 50%; background: var(--tally);
+                  animation: clignote 1.1s infinite; }
+  @keyframes clignote { 50% { opacity: .2; } }
+
+  #commandes {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: flex; align-items: center; gap: 8px;
+    padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    background: linear-gradient(to top, rgba(0,0,0,.92), transparent);
+    transition: opacity .25s;
+  }
+  #commandes.efface { opacity: 0; pointer-events: none; }
+  .cmd {
+    border: 1px solid #2c3139; border-radius: 10px; background: rgba(18,20,24,.85);
+    min-width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--chrome); font-size: 13px; padding: 0 10px;
+  }
+  .cmd.large { flex: 1; }
+  .cmd.lecture { background: var(--ambre); border-color: var(--ambre); color: #17120a;
+                 font-size: 18px; font-weight: 600; }
+  .cmd.enreg { color: var(--tally); border-color: #4a2320; }
+
+  /* ---------- feuille de réglages ---------- */
+  #reglages {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 86%; overflow-y: auto;
+    background: var(--fond-2); border-top: 1px solid var(--bord);
+    border-radius: 16px 16px 0 0;
+    padding-block: 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .reglage { display: grid; gap: 7px; margin-bottom: 16px; }
+  .reglage .etiq { display: flex; justify-content: space-between; font-size: 13px; color: var(--doux); }
+  .reglage .val { font-family: var(--chrome); color: var(--ambre); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--ambre); height: 32px; }
+  .bascules { display: flex; flex-wrap: wrap; gap: 8px; }
+  .bascule {
+    border: 1px solid var(--bord); border-radius: 10px; padding: 10px 13px;
+    background: var(--fond); font-size: 14px; min-height: 44px;
+  }
+  .bascule[aria-pressed="true"] { border-color: var(--ambre); color: var(--ambre); }
+  .note { font-size: 12.5px; color: var(--doux); margin: 0 0 14px; }
+  .note.alerte { color: var(--tally); }
+
+  #decompte {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.75); font-family: var(--chrome); font-size: 23vmin; color: var(--ambre);
+  }
+  #decompte.actif { display: flex; }
+  @media (prefers-reduced-motion: reduce) {
+    #tally .point { animation: none; }
+    #commandes { transition: none; }
+  }
+</style>
+
+<!-- ================= BIBLIOTHÈQUE ================= -->
+<section class="vue actif" id="vue-liste">
+  <header class="barre">
+    <h1 class="titre-app">Prompteur</h1>
+    <span class="grandir"></span>
+    <span class="compte" id="cadence-liste"></span>
+  </header>
+  <div class="liste" id="liste"></div>
+  <div class="pied">
+    <button class="btn plein" id="btn-nouveau">Nouveau texte</button>
+    <button class="btn" id="btn-importer">Importer</button>
+    <input type="file" id="fichier" accept=".txt,text/plain" hidden>
+  </div>
+</section>
+
+<!-- ================= ÉDITEUR ================= -->
+<section class="vue" id="vue-edit">
+  <header class="barre">
+    <button class="btn discret" id="btn-retour">Retour</button>
+    <span class="grandir"></span>
+    <button class="btn danger" id="btn-supprimer">Supprimer</button>
+    <button class="btn plein" id="btn-enregistrer">Enregistrer</button>
+  </header>
+  <div class="edit">
+    <input id="champ-titre" placeholder="Titre du texte" autocomplete="off">
+    <textarea id="champ-texte" placeholder="Collez ou tapez votre texte ici."></textarea>
+    <div class="compte" id="compte-edit">0 mot</div>
+  </div>
+</section>
+
+<!-- ================= LECTURE ================= -->
+<section class="vue" id="vue-lecture">
+  <div id="scene">
+    <video id="camera" playsinline muted></video>
+    <div id="voile"></div>
+    <div id="miroir"><div id="texte"></div></div>
+    <div id="ligne"></div>
+    <div class="ombre haut"></div>
+    <div class="ombre bas"></div>
+  </div>
+
+  <div id="hud">
+    <button class="cmd pointeur" id="btn-quitter" aria-label="Fermer">✕</button>
+    <span class="grandir"></span>
+    <span id="tally" hidden><span class="point"></span><span id="duree-enreg">00:00</span></span>
+    <span id="chrono">00:00 / 00:00</span>
+  </div>
+
+  <div id="decompte"></div>
+
+  <div id="commandes">
+    <button class="cmd" id="btn-debut" aria-label="Revenir au début">⏮</button>
+    <button class="cmd" id="btn-moins" aria-label="Ralentir">−</button>
+    <button class="cmd lecture large" id="btn-play">Lire</button>
+    <button class="cmd" id="btn-plus" aria-label="Accélérer">+</button>
+    <button class="cmd" id="btn-reglages" aria-label="Réglages">⚙</button>
+  </div>
+
+  <div id="reglages" hidden>
+    <div class="reglage">
+      <span class="etiq">Vitesse <span class="val" id="val-vitesse"></span></span>
+      <input type="range" id="rng-vitesse" min="60" max="260" step="5">
+    </div>
+    <div class="reglage">
+      <span class="etiq">Taille du texte <span class="val" id="val-taille"></span></span>
+      <input type="range" id="rng-taille" min="20" max="90" step="1">
+    </div>
+    <div class="reglage">
+      <span class="etiq">Interligne <span class="val" id="val-interligne"></span></span>
+      <input type="range" id="rng-interligne" min="110" max="210" step="5">
+    </div>
+    <div class="reglage">
+      <span class="etiq">Largeur du texte <span class="val" id="val-largeur"></span></span>
+      <input type="range" id="rng-largeur" min="50" max="100" step="5">
+    </div>
+    <div class="reglage">
+      <span class="etiq">Ligne de lecture <span class="val" id="val-ligne"></span></span>
+      <input type="range" id="rng-ligne" min="15" max="70" step="5">
+    </div>
+    <div class="reglage" id="bloc-voile" hidden>
+      <span class="etiq">Assombrir l'image <span class="val" id="val-voile"></span></span>
+      <input type="range" id="rng-voile" min="0" max="80" step="5">
+    </div>
+    <div class="bascules">
+      <button class="bascule" id="bsc-miroir" aria-pressed="false">Miroir</button>
+      <button class="bascule" id="bsc-vertical" aria-pressed="false">Retourner</button>
+      <button class="bascule" id="bsc-decompte" aria-pressed="true">Décompte 3-2-1</button>
+      <button class="bascule" id="bsc-veille" aria-pressed="true">Garder l'écran allumé</button>
+      <button class="bascule" id="bsc-camera" aria-pressed="false">Mode caméra</button>
+      <button class="bascule" id="bsc-plein" aria-pressed="false">Plein écran</button>
+    </div>
+    <p class="note" id="note-camera" hidden></p>
+    <p class="note">Touchez le texte pour démarrer ou mettre en pause. Faites-le glisser pour vous
+      repositionner. Une télécommande Bluetooth clavier fonctionne : espace lit et met en pause,
+      les flèches règlent la vitesse.</p>
+    <button class="btn" id="btn-fermer-reglages" style="width:100%">Fermer</button>
+  </div>
+</section>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const CLE = "prompteur.v1";
+
+const EXEMPLE = `Bonjour, et bienvenue.
+
+Ce texte est là pour régler votre prompteur avant le tournage.
+Touchez l'écran pour lancer le défilement, touchez à nouveau pour l'arrêter.
+
+Réglez la vitesse en mots par minute avec les boutons moins et plus.
+Un débit naturel à la caméra se situe entre cent trente et cent soixante mots par minute.
+
+Le repère ambré indique la ligne de lecture : posez-y votre regard, le plus près
+possible de l'objectif. Dans les réglages, vous pouvez la déplacer, grossir le texte,
+retourner l'image pour un miroir sans tain, et garder l'écran allumé pendant la prise.
+
+Quand tout est réglé, remplacez ce texte par le vôtre. Bon tournage.`;
+
+/* ---------------------------------------------------------- état */
+const etatInitial = {
+  textes: [{ id: "exemple", titre: "Texte d'essai", contenu: EXEMPLE, modifie: Date.now() }],
+  reglages: { vitesse: 140, taille: 38, interligne: 150, largeur: 85, ligne: 35,
+              miroir: false, vertical: false, decompte: true, veille: true, voile: 45 },
+};
+let etat = charger();
+let courant = null;          // texte en cours de lecture ou d'édition
+let pos = 0, max = 0, pxParSec = 0, enLecture = false, derniere = 0, rafId = 0;
+let flux = null, enregistreur = null, morceaux = [], debutEnreg = 0, minuteurEnreg = 0;
+let verrou = null, masquage = 0;
+
+function charger() {
+  try {
+    const brut = localStorage.getItem(CLE);
+    if (!brut) return structuredClone(etatInitial);
+    const lu = JSON.parse(brut);
+    return {
+      textes: Array.isArray(lu.textes) && lu.textes.length ? lu.textes : structuredClone(etatInitial.textes),
+      reglages: { ...etatInitial.reglages, ...(lu.reglages || {}) },
+    };
+  } catch (e) { return structuredClone(etatInitial); }
+}
+function sauver() {
+  try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch (e) { /* navigation privée */ }
+}
+
+/* ---------------------------------------------------------- utilitaires */
+const motsDe = (t) => (t || "").trim() ? (t.trim().match(/\S+/g) || []).length : 0;
+const mmss = (s) => {
+  s = Math.max(0, Math.round(s));
+  return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+};
+const dureeDe = (t) => motsDe(t) / etat.reglages.vitesse * 60;
+
+function vue(nom) {
+  document.querySelectorAll(".vue").forEach((v) => v.classList.toggle("actif", v.id === "vue-" + nom));
+}
+
+/* ---------------------------------------------------------- bibliothèque */
+function rendreListe() {
+  $("cadence-liste").textContent = etat.reglages.vitesse + " mots/min";
+  if (!etat.textes.length) {
+    $("liste").innerHTML = `<p class="vide">Aucun texte.<br>Touchez « Nouveau texte » pour commencer.</p>`;
+    return;
+  }
+  const ordre = [...etat.textes].sort((a, b) => b.modifie - a.modifie);
+  $("liste").innerHTML = ordre.map((t) => `
+    <div class="fiche">
+      <button class="grandir" data-lire="${t.id}" style="text-align:left;padding:0">
+        <h3>${echappe(t.titre || "Sans titre")}</h3>
+        <span class="meta">${motsDe(t.contenu)} mots · ${mmss(dureeDe(t.contenu))}</span>
+      </button>
+      <button class="modif" data-modifier="${t.id}">Modifier</button>
+    </div>`).join("");
+  $("liste").querySelectorAll("[data-lire]").forEach((b) =>
+    b.onclick = () => ouvrirLecture(b.dataset.lire));
+  $("liste").querySelectorAll("[data-modifier]").forEach((b) =>
+    b.onclick = () => ouvrirEditeur(b.dataset.modifier));
+}
+function echappe(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+/* ---------------------------------------------------------- éditeur */
+function ouvrirEditeur(id) {
+  courant = etat.textes.find((t) => t.id === id) || { id: String(Date.now()), titre: "", contenu: "" };
+  $("champ-titre").value = courant.titre || "";
+  $("champ-texte").value = courant.contenu || "";
+  majCompte();
+  vue("edit");
+}
+function majCompte() {
+  const t = $("champ-texte").value;
+  $("compte-edit").textContent = `${motsDe(t)} mots · ${mmss(dureeDe(t))} à ${etat.reglages.vitesse} mots/min`;
+}
+$("champ-texte").oninput = majCompte;
+$("btn-nouveau").onclick = () => ouvrirEditeur(null);
+$("btn-retour").onclick = () => { vue("liste"); rendreListe(); };
+$("btn-enregistrer").onclick = () => {
+  const fiche = {
+    id: courant.id, titre: $("champ-titre").value.trim() || "Sans titre",
+    contenu: $("champ-texte").value, modifie: Date.now(),
+  };
+  const i = etat.textes.findIndex((t) => t.id === fiche.id);
+  if (i >= 0) etat.textes[i] = fiche; else etat.textes.push(fiche);
+  sauver(); vue("liste"); rendreListe();
+};
+$("btn-supprimer").onclick = () => {
+  etat.textes = etat.textes.filter((t) => t.id !== courant.id);
+  sauver(); vue("liste"); rendreListe();
+};
+$("btn-importer").onclick = () => $("fichier").click();
+$("fichier").onchange = (e) => {
+  const fichier = e.target.files[0];
+  if (!fichier) return;
+  const lecteur = new FileReader();
+  lecteur.onload = () => {
+    etat.textes.push({ id: String(Date.now()), titre: fichier.name.replace(/\.txt$/i, ""),
+                       contenu: String(lecteur.result), modifie: Date.now() });
+    sauver(); rendreListe();
+  };
+  lecteur.readAsText(fichier);
+  e.target.value = "";
+};
+
+/* ---------------------------------------------------------- lecture */
+function ouvrirLecture(id) {
+  courant = etat.textes.find((t) => t.id === id);
+  if (!courant) return;
+  $("texte").textContent = courant.contenu;
+  vue("lecture");
+  appliquerReglages();
+  requestAnimationFrame(() => { mesurer(); placer(0); majChrono(); });
+}
+
+function appliquerReglages() {
+  const r = etat.reglages;
+  $("texte").style.fontSize = r.taille + "px";
+  $("texte").style.lineHeight = r.interligne / 100;
+  $("texte").style.maxWidth = r.largeur + "%";
+  $("texte").style.marginInline = "auto";
+  const echelleX = r.miroir ? -1 : 1, echelleY = r.vertical ? -1 : 1;
+  $("miroir").style.transform = `scale(${echelleX}, ${echelleY})`;
+  $("ligne").style.top = r.ligne + "%";
+  $("voile").style.background = `rgba(0,0,0,${r.voile / 100})`;
+  $("rng-voile").value = r.voile; $("val-voile").textContent = r.voile + " %";
+  $("rng-vitesse").value = r.vitesse; $("val-vitesse").textContent = r.vitesse + " mots/min";
+  $("rng-taille").value = r.taille; $("val-taille").textContent = r.taille + " px";
+  $("rng-interligne").value = r.interligne; $("val-interligne").textContent = (r.interligne / 100).toFixed(1);
+  $("rng-largeur").value = r.largeur; $("val-largeur").textContent = r.largeur + " %";
+  $("rng-ligne").value = r.ligne; $("val-ligne").textContent = r.ligne + " %";
+  $("bsc-miroir").setAttribute("aria-pressed", String(r.miroir));
+  $("bsc-vertical").setAttribute("aria-pressed", String(r.vertical));
+  $("bsc-decompte").setAttribute("aria-pressed", String(r.decompte));
+  $("bsc-veille").setAttribute("aria-pressed", String(r.veille));
+  mesurer();
+}
+
+function mesurer() {
+  const hauteurTexte = $("texte").scrollHeight;
+  max = Math.max(1, hauteurTexte);
+  const mots = Math.max(1, motsDe(courant ? courant.contenu : ""));
+  pxParSec = (etat.reglages.vitesse / 60) * (hauteurTexte / mots);
+  placer(pos);
+}
+function placer(valeur) {
+  pos = Math.min(max, Math.max(0, valeur));
+  const haut = $("scene").clientHeight * (etat.reglages.ligne / 100);
+  $("texte").style.transform = `translateY(${haut - pos}px)`;
+  majChrono();
+}
+function majChrono() {
+  const reste = (max - pos) / Math.max(0.01, pxParSec);
+  const total = max / Math.max(0.01, pxParSec);
+  $("chrono").textContent = `${mmss(total - reste)} / ${mmss(total)}`;
+}
+
+function boucle(horodatage) {
+  if (!enLecture) return;
+  const delta = (horodatage - derniere) / 1000;
+  derniere = horodatage;
+  placer(pos + pxParSec * delta);
+  if (pos >= max) { pause(); return; }
+  rafId = requestAnimationFrame(boucle);
+}
+
+async function lire() {
+  if (enLecture) return;
+  if (etat.reglages.decompte && pos === 0) await decompter();
+  enLecture = true;
+  $("btn-play").textContent = "Pause";
+  derniere = performance.now();
+  rafId = requestAnimationFrame(boucle);
+  demanderVeille();
+  masquerCommandes();
+}
+function pause() {
+  enLecture = false;
+  cancelAnimationFrame(rafId);
+  $("btn-play").textContent = "Lire";
+  montrerCommandes();
+}
+function basculerLecture() { enLecture ? pause() : lire(); }
+
+function decompter() {
+  return new Promise((resolve) => {
+    const boite = $("decompte");
+    let n = 3;
+    boite.textContent = n; boite.classList.add("actif");
+    const tic = setInterval(() => {
+      n -= 1;
+      if (n === 0) {
+        clearInterval(tic); boite.classList.remove("actif"); resolve();
+      } else { boite.textContent = n; }
+    }, 1000);
+  });
+}
+
+function masquerCommandes() {
+  clearTimeout(masquage);
+  masquage = setTimeout(() => { if (enLecture) $("commandes").classList.add("efface"); }, 2500);
+}
+function montrerCommandes() {
+  clearTimeout(masquage);
+  $("commandes").classList.remove("efface");
+}
+
+/* glisser pour se repositionner */
+let depart = null;
+$("scene").addEventListener("pointerdown", (e) => {
+  depart = { y: e.clientY, pos, bouge: false };
+  $("scene").setPointerCapture(e.pointerId);
+});
+$("scene").addEventListener("pointermove", (e) => {
+  if (!depart) return;
+  const ecart = e.clientY - depart.y;
+  if (Math.abs(ecart) > 6) {
+    if (!depart.bouge) { depart.bouge = true; if (enLecture) pause(); }
+    placer(depart.pos - ecart);
+  }
+});
+$("scene").addEventListener("pointerup", () => {
+  if (depart && !depart.bouge) { basculerLecture(); montrerCommandes(); }
+  depart = null;
+});
+
+/* ---------------------------------------------------------- commandes */
+$("btn-play").onclick = (e) => { e.stopPropagation(); basculerLecture(); };
+$("btn-debut").onclick = () => { pause(); placer(0); };
+$("btn-moins").onclick = () => reglerVitesse(etat.reglages.vitesse - 10);
+$("btn-plus").onclick = () => reglerVitesse(etat.reglages.vitesse + 10);
+$("btn-reglages").onclick = () => { $("reglages").hidden = false; montrerCommandes(); };
+$("btn-fermer-reglages").onclick = () => { $("reglages").hidden = true; };
+$("btn-quitter").onclick = () => {
+  pause(); arreterCamera(); libererVeille();
+  vue("liste"); rendreListe();
+};
+
+function reglerVitesse(v) {
+  etat.reglages.vitesse = Math.min(260, Math.max(60, v));
+  sauver(); appliquerReglages(); montrerCommandes();
+  if (enLecture) masquerCommandes();
+}
+$("rng-vitesse").oninput = (e) => reglerVitesse(Number(e.target.value));
+$("rng-taille").oninput = (e) => { etat.reglages.taille = Number(e.target.value); sauver(); appliquerReglages(); };
+$("rng-interligne").oninput = (e) => { etat.reglages.interligne = Number(e.target.value); sauver(); appliquerReglages(); };
+$("rng-largeur").oninput = (e) => { etat.reglages.largeur = Number(e.target.value); sauver(); appliquerReglages(); };
+$("rng-ligne").oninput = (e) => { etat.reglages.ligne = Number(e.target.value); sauver(); appliquerReglages(); };
+$("rng-voile").oninput = (e) => { etat.reglages.voile = Number(e.target.value); sauver(); appliquerReglages(); };
+
+function bascule(idBouton, cle) {
+  $(idBouton).onclick = () => {
+    etat.reglages[cle] = !etat.reglages[cle];
+    sauver(); appliquerReglages();
+  };
+}
+bascule("bsc-miroir", "miroir");
+bascule("bsc-vertical", "vertical");
+bascule("bsc-decompte", "decompte");
+$("bsc-veille").onclick = () => {
+  etat.reglages.veille = !etat.reglages.veille;
+  sauver(); appliquerReglages();
+  etat.reglages.veille ? demanderVeille() : libererVeille();
+};
+
+/* ---------------------------------------------------------- écran allumé */
+async function demanderVeille() {
+  if (!etat.reglages.veille || verrou || !("wakeLock" in navigator)) return;
+  try { verrou = await navigator.wakeLock.request("screen"); } catch (e) { verrou = null; }
+}
+function libererVeille() {
+  if (verrou) { verrou.release().catch(() => {}); verrou = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && enLecture) demanderVeille();
+});
+
+/* ---------------------------------------------------------- caméra */
+$("bsc-camera").onclick = async () => {
+  if (flux) { arreterCamera(); return; }
+  $("note-camera").hidden = true;
+  try {
+    flux = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: true,
+    });
+  } catch (e) {
+    flux = null;
+    $("note-camera").hidden = false;
+    $("note-camera").className = "note alerte";
+    $("note-camera").textContent =
+      "La caméra n'est pas accessible ici. Sur une page publiée sur claude.ai, elle est bloquée : "
+      + "ouvrez le fichier depuis une adresse à vous (https) pour filmer et lire en même temps. "
+      + "Le prompteur fonctionne normalement sans caméra.";
+    return;
+  }
+  $("camera").srcObject = flux;
+  $("camera").play().catch(() => {});
+  $("camera").classList.add("actif");
+  $("voile").classList.add("actif");
+  $("bsc-camera").setAttribute("aria-pressed", "true");
+  $("camera").style.transform = etat.reglages.miroir ? "none" : "scaleX(-1)";
+  $("bloc-voile").hidden = false;
+  $("reglages").hidden = true;   // sinon la feuille recouvre le bouton d'enregistrement
+  montrerCommandes();
+  if (!$("btn-enreg")) {
+    const bouton = document.createElement("button");
+    bouton.className = "cmd enreg"; bouton.id = "btn-enreg"; bouton.textContent = "REC";
+    bouton.onclick = basculerEnregistrement;
+    $("commandes").insertBefore(bouton, $("btn-reglages"));
+  }
+};
+
+function arreterCamera() {
+  if (enregistreur && enregistreur.state !== "inactive") enregistreur.stop();
+  if (flux) flux.getTracks().forEach((p) => p.stop());
+  flux = null;
+  $("camera").classList.remove("actif");
+  $("voile").classList.remove("actif");
+  $("bsc-camera").setAttribute("aria-pressed", "false");
+  $("bloc-voile").hidden = true;
+  const bouton = $("btn-enreg");
+  if (bouton) bouton.remove();
+}
+
+function typeVideo() {
+  const types = ["video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  return types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+}
+
+function basculerEnregistrement() {
+  if (enregistreur && enregistreur.state === "recording") { enregistreur.stop(); return; }
+  if (!flux) return;
+  morceaux = [];
+  const type = typeVideo();
+  try { enregistreur = new MediaRecorder(flux, type ? { mimeType: type } : undefined); }
+  catch (e) { return; }
+  enregistreur.ondataavailable = (e) => { if (e.data.size) morceaux.push(e.data); };
+  enregistreur.onstop = () => {
+    clearInterval(minuteurEnreg);
+    $("tally").hidden = true;
+    $("btn-enreg").textContent = "REC";
+    const blob = new Blob(morceaux, { type: type || "video/webm" });
+    const lien = document.createElement("a");
+    lien.href = URL.createObjectURL(blob);
+    lien.download = `prise-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`
+      + (type.includes("mp4") ? ".mp4" : ".webm");
+    lien.click();
+    setTimeout(() => URL.revokeObjectURL(lien.href), 60000);
+  };
+  enregistreur.start();
+  debutEnreg = Date.now();
+  $("tally").hidden = false;
+  $("btn-enreg").textContent = "STOP";
+  minuteurEnreg = setInterval(() => {
+    $("duree-enreg").textContent = mmss((Date.now() - debutEnreg) / 1000);
+  }, 500);
+}
+
+/* ---------------------------------------------------------- plein écran */
+$("bsc-plein").onclick = async () => {
+  try {
+    if (document.fullscreenElement) { await document.exitFullscreen(); $("bsc-plein").setAttribute("aria-pressed", "false"); }
+    else { await document.documentElement.requestFullscreen(); $("bsc-plein").setAttribute("aria-pressed", "true"); }
+  } catch (e) { $("bsc-plein").setAttribute("aria-pressed", "false"); }
+};
+
+/* ---------------------------------------------------------- clavier */
+document.addEventListener("keydown", (e) => {
+  if (!$("vue-lecture").classList.contains("actif")) return;
+  if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if (e.code === "Space") { e.preventDefault(); basculerLecture(); }
+  else if (e.code === "ArrowUp") { e.preventDefault(); reglerVitesse(etat.reglages.vitesse + 10); }
+  else if (e.code === "ArrowDown") { e.preventDefault(); reglerVitesse(etat.reglages.vitesse - 10); }
+  else if (e.code === "Home") { pause(); placer(0); }
+  else if (e.code === "Escape") { $("btn-quitter").click(); }
+});
+
+window.addEventListener("resize", () => { if ($("vue-lecture").classList.contains("actif")) mesurer(); });
+
+/* ---------------------------------------------------------- installation */
+if (window.top === window.self) {          // page ouverte directement, pas dans un cadre
+  const lien = document.createElement("link");
+  lien.rel = "manifest"; lien.href = "manifest.webmanifest";
+  document.head.appendChild(lien);
+  if ("serviceWorker" in navigator && window.isSecureContext) {   // https ou localhost
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+}
+
+/* ---------------------------------------------------------- démarrage */
+appliquerReglages();
+rendreListe();
+</script>
