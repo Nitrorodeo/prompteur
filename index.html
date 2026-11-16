@@ -185,6 +185,19 @@
   .note { font-size: 12.5px; color: var(--doux); margin: 0 0 14px; }
   .note.alerte { color: var(--tally); }
 
+  #revue {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 92%; overflow-y: auto;
+    background: var(--fond-2); border-top: 1px solid var(--bord); border-radius: 16px 16px 0 0;
+    padding-block: 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid; gap: 12px;
+  }
+  #revue h2 { margin: 0; }
+  #apercu { width: 100%; max-height: 42vh; border-radius: 12px; background: #000; display: block; }
+  #revue .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  #revue .actions .btn { flex: 1; min-width: 130px; }
+
   #decompte {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
     background: rgba(0,0,0,.75); font-family: var(--chrome); font-size: 23vmin; color: var(--ambre);
@@ -252,6 +265,17 @@
     <button class="cmd lecture large" id="btn-play">Lire</button>
     <button class="cmd" id="btn-plus" aria-label="Accélérer">+</button>
     <button class="cmd" id="btn-reglages" aria-label="Réglages">⚙</button>
+  </div>
+
+  <div id="revue" hidden>
+    <h2>Votre prise</h2>
+    <video id="apercu" controls playsinline></video>
+    <div class="actions">
+      <button class="btn plein" id="btn-partager" hidden>Enregistrer dans Photos</button>
+      <button class="btn" id="btn-telecharger">Télécharger</button>
+      <button class="btn discret" id="btn-refaire">Nouvelle prise</button>
+    </div>
+    <p class="note" id="note-revue"></p>
   </div>
 
   <div id="reglages" hidden>
@@ -658,12 +682,9 @@ function basculerEnregistrement() {
     $("tally").hidden = true;
     $("btn-enreg").textContent = "REC";
     const blob = new Blob(morceaux, { type: type || "video/webm" });
-    const lien = document.createElement("a");
-    lien.href = URL.createObjectURL(blob);
-    lien.download = `prise-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`
-      + (type.includes("mp4") ? ".mp4" : ".webm");
-    lien.click();
-    setTimeout(() => URL.revokeObjectURL(lien.href), 60000);
+    const extension = (type || "").includes("mp4") ? ".mp4" : ".webm";
+    const nom = `prise-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}${extension}`;
+    montrerPrise(blob, nom);
   };
   enregistreur.start();
   debutEnreg = Date.now();
@@ -673,6 +694,66 @@ function basculerEnregistrement() {
     $("duree-enreg").textContent = mmss((Date.now() - debutEnreg) / 1000);
   }, 500);
 }
+
+/* ---------------------------------------------------------- la prise terminée */
+let derniere_prise = null;
+
+function montrerPrise(blob, nom) {
+  pause();
+  if (derniere_prise) URL.revokeObjectURL(derniere_prise.url);
+  const fichier = new File([blob], nom, { type: blob.type || "video/mp4" });
+  derniere_prise = { blob, nom, fichier, url: URL.createObjectURL(blob) };
+
+  $("apercu").src = derniere_prise.url;
+  $("revue").hidden = false;
+
+  // Safari sur iPhone refuse qu'une page télécharge un fichier seule : on passe par
+  // le menu de partage du téléphone, qui propose « Enregistrer dans Photos ».
+  let partageable = false;
+  try { partageable = !!(navigator.canShare && navigator.canShare({ files: [fichier] })); }
+  catch (e) { partageable = false; }
+  $("btn-partager").hidden = !partageable;
+
+  const poids = (blob.size / 1048576).toFixed(1);
+  $("note-revue").textContent = partageable
+    ? `${poids} Mo. « Enregistrer dans Photos » ouvre le menu de partage du téléphone : `
+      + `choisissez « Enregistrer la vidéo » pour la ranger dans vos photos. `
+      + `Tant que vous ne l'avez pas fait, la prise n'existe qu'ici.`
+    : `${poids} Mo. Le fichier part dans vos téléchargements. `
+      + `Tant que vous ne l'avez pas fait, la prise n'existe qu'ici.`;
+}
+
+$("btn-partager").onclick = async () => {
+  if (!derniere_prise) return;
+  try {
+    await navigator.share({ files: [derniere_prise.fichier], title: derniere_prise.nom });
+  } catch (e) {
+    if (e && e.name === "AbortError") return;       // partage annulé : rien à signaler
+    $("note-revue").className = "note alerte";
+    $("note-revue").textContent =
+      "Le partage a été refusé. Touchez la vidéo ci-dessus, puis le bouton de partage de Safari, "
+      + "pour l'enregistrer dans Photos.";
+  }
+};
+
+$("btn-telecharger").onclick = () => {
+  if (!derniere_prise) return;
+  const lien = document.createElement("a");
+  lien.href = derniere_prise.url;
+  lien.download = derniere_prise.nom;
+  document.body.appendChild(lien);
+  lien.click();
+  lien.remove();
+};
+
+$("btn-refaire").onclick = () => {
+  $("revue").hidden = true;
+  $("apercu").pause();
+  $("apercu").removeAttribute("src");
+  $("note-revue").className = "note";
+  if (derniere_prise) { URL.revokeObjectURL(derniere_prise.url); derniere_prise = null; }
+  placer(0);
+};
 
 /* ---------------------------------------------------------- plein écran */
 $("bsc-plein").onclick = async () => {
